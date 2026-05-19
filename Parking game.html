@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>3D 주차 마스터 - 퍼포먼스 에디션</title>
+    <style>
+        :root { --accent-color: #00ffcc; --danger-color: #ff3366; }
+        body { margin: 0; overflow: hidden; background-color: #111; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; user-select: none; }
+        
+        /* 게임 내 UI */
+        #gameUI { position: absolute; top: 0; left: 0; width: 100%; padding: 20px; box-sizing: border-box; display: flex; justify-content: space-between; align-items: flex-start; z-index: 10; pointer-events: none; }
+        #topLeftUI { text-shadow: 2px 2px 4px rgba(0,0,0,0.8); color: white; }
+        #topLeftUI h1 { margin: 0; font-size: 42px; color: var(--accent-color); font-style: italic; font-weight: 900; }
+        #topLeftUI p { font-size: 16px; margin-top: 8px; background: rgba(0,0,0,0.7); padding: 12px; border-radius: 8px; line-height: 1.6; border-left: 5px solid var(--accent-color); max-width: 350px; }
+        
+        #topRightUI { display: flex; flex-direction: column; align-items: flex-end; }
+        #creditsDisplay { background: rgba(0,0,0,0.8); padding: 10px 20px; border-radius: 8px; color: #ffd700; font-size: 26px; font-weight: bold; border: 2px solid #555; }
+        #dashboard { background: rgba(0,0,0,0.8); padding: 10px 15px; border-radius: 8px; color: #fff; font-size: 24px; font-weight: bold; border: 2px solid #555; box-shadow: 0 0 15px rgba(0,255,204,0.2); display: flex; align-items: baseline; margin-top: 10px; }
+        #speedText { font-size: 36px; color: var(--accent-color); margin: 0 8px; width: 55px; text-align: right; display: inline-block; }
+
+        /* 오버레이 (공통 스타일) */
+        .overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.85); display: none; flex-direction: column; justify-content: center; align-items: center; color: white; z-index: 20; backdrop-filter: blur(8px); }
+        .overlay h2 { font-size: 55px; margin-bottom: 15px; text-shadow: 2px 2px 15px black; }
+        
+        .btn-group-row { display: flex; gap: 20px; margin-top: 20px; }
+        button { padding: 16px 35px; font-size: 22px; font-weight: bold; cursor: pointer; border: none; border-radius: 8px; transition: 0.2s; box-shadow: 0 4px 15px rgba(0,0,0,0.5); pointer-events: auto; }
+        button:hover:not(:disabled) { transform: translateY(-3px); }
+        button:disabled { background-color: #444 !important; color: #888 !important; cursor: not-allowed; box-shadow: none; }
+
+        /* 레벨 클리어 / 게임오버 */
+        #levelClearOverlay h2 { color: var(--accent-color); }
+        #creditsEarned { font-size: 32px; color: #ffd700; font-weight: bold; margin-bottom: 20px; }
+        .btn-primary { background-color: var(--accent-color); color: #000; box-shadow: 0 4px 20px rgba(0,255,204,0.4); }
+        .btn-secondary { background-color: #f0ad4e; color: white; }
+        #gameOverOverlay h2 { color: var(--danger-color); }
+        #gameOverOverlay button { background-color: var(--danger-color); color: white; box-shadow: 0 4px 20px rgba(255,51,102,0.4); }
+        
+        /* 차고 */
+        #garageOverlay { justify-content: flex-start; padding-top: 5vh; }
+        #garage-header { display: flex; justify-content: space-between; align-items: center; width: 85%; max-width: 1200px; margin-bottom: 20px; }
+        #garage-header h2 { margin: 0; font-size: 40px; color: #fff; }
+        #garage-credits { font-size: 36px; color: #ffd700; font-weight: bold; background: rgba(0,0,0,0.5); padding: 10px 20px; border-radius: 10px; }
+        
+        #car-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; width: 85%; max-width: 1200px; height: 65vh; overflow-y: auto; padding: 20px; background: rgba(255,255,255,0.05); border-radius: 15px; border: 1px solid #333; }
+        #car-list::-webkit-scrollbar { width: 10px; }
+        #car-list::-webkit-scrollbar-track { background: #111; border-radius: 5px; }
+        #car-list::-webkit-scrollbar-thumb { background: #555; border-radius: 5px; }
+        
+        .car-card { background: linear-gradient(145deg, #222, #1a1a1a); border-radius: 12px; padding: 25px 20px; text-align: center; border: 2px solid #444; transition: 0.3s; position: relative; }
+        .car-card.selected { border-color: var(--accent-color); box-shadow: 0 0 25px rgba(0,255,204,0.3); transform: scale(1.02); }
+        .car-card h3 { margin-top: 0; font-size: 26px; color: #fff; border-bottom: 1px solid #444; padding-bottom: 10px; }
+        .car-card p { color: #bbb; margin: 15px 0; font-size: 15px; line-height: 1.6; }
+        .car-card .btn-group { display: flex; flex-direction: column; gap: 10px; margin-top: 20px; }
+        .car-card button { width: 100%; font-size: 18px; padding: 12px; }
+        .buy-btn { background-color: #f0ad4e; color: white; }
+    </style>
+</head>
+<body>
+    <div id="gameUI">
+        <div id="topLeftUI">
+            <h1 id="levelText">STAGE 1</h1>
+            <p id="carNameText">현재 차량: Standard Sedan</p>
+        </div>
+        <div id="topRightUI">
+            <div id="creditsDisplay">💰 <span id="creditsAmount">0</span></div>
+            <div id="dashboard">SPEED <span id="speedText">0</span> km/h</div>
+        </div>
+    </div>
+    
+    <div id="levelClearOverlay" class="overlay">
+        <h2 id="msgText">완벽한 주차입니다!</h2>
+        <p id="creditsEarned">+ 150 💰</p>
+        <div class="btn-group-row">
+            <button id="nextStageBtn" class="btn-primary" onclick="startNextLevel()">다음 스테이지 바로가기</button>
+            <button id="goToGarageBtn" class="btn-secondary" onclick="openGarage()">차고(상점) 들르기</button>
+        </div>
+    </div>
+
+    <div id="gameOverOverlay" class="overlay">
+        <h2 id="msgText">💥 차량 파손!</h2>
+        <button onclick="resetLevel()">다시 도전하기</button>
+    </div>
+
+    <div id="garageOverlay" class="overlay">
+        <div id="garage-header">
+            <h2>차고 & 차량 상점</h2>
+            <div id="garage-credits">💰 0</div>
+        </div>
+        <div id="car-list"></div>
+        <div style="margin-top: 25px;">
+            <button class="btn-primary" onclick="startNextLevel()">선택한 차량으로 플레이 시작</button>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        let scene, camera, renderer, clock;
+        let car, goalMesh;
+        let obstacles = [], parkingLines = [];
+        let currentLevel = 1, maxLevel = 8;
+        
+        let totalCredits = 0;
+        let ownedCars = new Set(['sedan']);
+        let selectedCarId = 'sedan';
+
+        let speed = 0, steeringAngle = 0;
+        let isCrashed = false, isSuccess = false;
+
+        const keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
+
+        // --- 차량 데이터베이스 (최고속도와 가속도 명확한 구분) ---
+        const CARS = {
+            'sedan': { name: "Standard Sedan", price: 0, unlocked: true, createFunc: createSedan,
+                // 기본 세단: 무난한 밸런스
+                physics: { wheelBase: 2.6, maxSpeed: 15, engineForce: 10, brakingForce: 25, maxSteering: 0.7 },
+                dimensions: { w: 2.3, l: 5.0 } },
+            'pickup': { name: "Pickup Truck", price: 500, unlocked: false, createFunc: createPickupTruck,
+                // 픽업트럭: 무겁고 최고속도는 낮지만 적당한 힘
+                physics: { wheelBase: 3.2, maxSpeed: 13, engineForce: 8, brakingForce: 20, maxSteering: 0.6 },
+                dimensions: { w: 2.4, l: 5.8 } },
+            'sports': { name: "Sports Car", price: 1200, unlocked: false, createFunc: createSportsCar,
+                // 스포츠카: 빠른 최고속도, 시원한 가속력
+                physics: { wheelBase: 2.4, maxSpeed: 23, engineForce: 18, brakingForce: 40, maxSteering: 0.8 },
+                dimensions: { w: 2.4, l: 4.8 } },
+            'convertible': { name: "Convertible", price: 1500, unlocked: false, createFunc: createConvertible,
+                // 컨버터블: 스포츠카와 비슷함
+                physics: { wheelBase: 2.4, maxSpeed: 21, engineForce: 16, brakingForce: 35, maxSteering: 0.8 },
+                dimensions: { w: 2.4, l: 4.8 } },
+            'supercar': { name: "Supercar", price: 3000, unlocked: false, createFunc: createSupercar,
+                // 슈퍼카: 폭발적인 가속력, 엄청난 최고속도 (컨트롤 요망)
+                physics: { wheelBase: 2.5, maxSpeed: 32, engineForce: 30, brakingForce: 55, maxSteering: 0.9 },
+                dimensions: { w: 2.6, l: 5.2 } },
+            'bus': { name: "City Bus", price: 4500, unlocked: false, createFunc: createBus,
+                // 버스: 매우 둔탁한 가속, 낮은 최고속도
+                physics: { wheelBase: 6.0, maxSpeed: 10, engineForce: 4, brakingForce: 15, maxSteering: 0.5 },
+                dimensions: { w: 2.8, l: 11.0 } },
+            'truck': { name: "Trailer Truck", price: 6000, unlocked: false, createFunc: createTrailerTruck,
+                // 트레일러: 가장 둔탁함
+                physics: { wheelBase: 7.0, maxSpeed: 9, engineForce: 3, brakingForce: 12, maxSteering: 0.45 },
+                dimensions: { w: 2.8, l: 12.0 } }
+        };
+
+        init();
+        animate();
+
+        function init() {
+            clock = new THREE.Clock();
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x111111, 0.015);
+            camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 1000);
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.body.appendChild(renderer.domElement);
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+            scene.add(ambientLight);
+            const mainLight = new THREE.DirectionalLight(0xe0eaff, 0.8);
+            mainLight.position.set(-30, 60, -30);
+            mainLight.castShadow = true;
+            mainLight.shadow.mapSize.width = 2048;
+            mainLight.shadow.mapSize.height = 2048;
+            scene.add(mainLight);
+
+            const groundGeo = new THREE.PlaneGeometry(300, 300);
+            const groundMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.9, metalness: 0.1 });
+            const ground = new THREE.Mesh(groundGeo, groundMat);
+            ground.rotation.x = -Math.PI / 2;
+            ground.receiveShadow = true;
+            scene.add(ground);
+            
+            const goalGeo = new THREE.BoxGeometry(4.2, 0.2, 6.2);
+            const goalMat = new THREE.MeshBasicMaterial({ color: 0x00ffcc, transparent: true, opacity: 0.3 });
+            goalMesh = new THREE.Mesh(goalGeo, goalMat);
+            scene.add(goalMesh);
+
+            window.addEventListener('keydown', (e) => { if(keys.hasOwnProperty(e.code)) keys[e.code] = true; });
+            window.addEventListener('keyup', (e) => { if(keys.hasOwnProperty(e.code)) keys[e.code] = false; });
+            window.addEventListener('resize', onWindowResize);
+
+            updateCreditsUI();
+            loadLevel(currentLevel);
+        }
+
+        // --- 그래픽 디테일 유틸 ---
+        function createDetailedWheel(x, z) {
+            const group = new THREE.Group();
+            const tireGeo = new THREE.TorusGeometry(0.35, 0.12, 16, 32); tireGeo.rotateY(Math.PI / 2);
+            const tire = new THREE.Mesh(tireGeo, new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 1.0 })); tire.castShadow = true; group.add(tire);
+            const rimGeo = new THREE.CylinderGeometry(0.33, 0.33, 0.22, 16); rimGeo.rotateZ(Math.PI / 2);
+            const rim = new THREE.Mesh(rimGeo, new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.9, roughness: 0.2 })); group.add(rim);
+            group.position.set(x, 0.45, z); return group;
+        }
+
+        function addStandardLights(carGroup, w, zFront, zBack, yFront, yBack) {
+            const hL = new THREE.SpotLight(0xffffff, 3.5, 50, Math.PI/5, 0.3, 1); hL.position.set(-w, yFront, zFront); hL.target.position.set(-w, 0, zFront + 15); hL.castShadow = true;
+            const hR = new THREE.SpotLight(0xffffff, 3.5, 50, Math.PI/5, 0.3, 1); hR.position.set(w, yFront, zFront); hR.target.position.set(w, 0, zFront + 15); hR.castShadow = true;
+            carGroup.add(hL, hL.target, hR, hR.target);
+
+            const tailLightMat = new THREE.MeshStandardMaterial({ color: 0x880000, emissive: 0x330000, roughness: 0.2 });
+            const tailGeo = new THREE.BoxGeometry(0.6, 0.2, 0.1);
+            const tL = new THREE.Mesh(tailGeo, tailLightMat); tL.position.set(-w, yBack, zBack);
+            const tR = new THREE.Mesh(tailGeo, tailLightMat); tR.position.set(w, yBack, zBack);
+            carGroup.add(tL, tR);
+
+            return tailLightMat;
+        }
+
+        // --- 차량 그래픽 생성 ---
+        function createSedan() {
+            const car = new THREE.Group(); const bM = new THREE.MeshStandardMaterial({ color: 0xaaaaaa, roughness: 0.3, metalness: 0.6 });
+            const base = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.7, 5.0), bM); base.position.y = 0.65; base.castShadow = true; car.add(base);
+            const roof = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.6, 2.6), new THREE.MeshStandardMaterial({ color: 0x050505, roughness: 0.1, transparent: true, opacity: 0.8 })); roof.position.set(0, 1.3, -0.2); car.add(roof);
+            const bumper = new THREE.Mesh(new THREE.BoxGeometry(2.35, 0.2, 0.2), new THREE.MeshStandardMaterial({color:0x111})); bumper.position.set(0, 0.4, 2.5); car.add(bumper);
+            const w1 = createDetailedWheel(-1.25, 1.4), w2 = createDetailedWheel(1.25, 1.4), w3 = createDetailedWheel(-1.25, -1.4), w4 = createDetailedWheel(1.25, -1.4); car.add(w1, w2, w3, w4);
+            const tailLightMat = addStandardLights(car, 0.8, 2.5, -2.51, 0.8, 0.8);
+            car.userData = { frontWheels: [w1, w2], allWheels: [w1,w2,w3,w4], tailLightMat }; return car;
+        }
+        function createSportsCar() {
+            const car = new THREE.Group(); const bM = new THREE.MeshStandardMaterial({ color: 0x0044ff, roughness: 0.1, metalness: 0.9 });
+            const base = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.6, 4.8), bM); base.position.y = 0.55; base.castShadow = true; car.add(base);
+            const roof = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.5, 2.2), new THREE.MeshStandardMaterial({ color: 0x050505, transparent: true, opacity: 0.8 })); roof.position.set(0, 1.1, -0.3); car.add(roof);
+            const spStand = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.3, 0.1), new THREE.MeshStandardMaterial({color:0x111})); spStand.position.set(0, 0.9, -2.2); car.add(spStand);
+            const spWing = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.1, 0.6), bM); spWing.position.set(0, 1.1, -2.3); car.add(spWing);
+            const w1 = createDetailedWheel(-1.3, 1.3), w2 = createDetailedWheel(1.3, 1.3), w3 = createDetailedWheel(-1.3, -1.3), w4 = createDetailedWheel(1.3, -1.3); car.add(w1, w2, w3, w4);
+            const tailLightMat = addStandardLights(car, 0.8, 2.4, -2.41, 0.7, 0.7);
+            car.userData = { frontWheels: [w1, w2], allWheels: [w1,w2,w3,w4], tailLightMat }; return car;
+        }
+        function createConvertible() {
+            const car = createSportsCar(); car.children[1].visible = false;
+            const seatM = new THREE.MeshStandardMaterial({color: 0x8b4513});
+            const seatL = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.5, 0.6), seatM); seatL.position.set(-0.5, 0.7, -0.2); car.add(seatL);
+            const seatR = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.5, 0.6), seatM); seatR.position.set(0.5, 0.7, -0.2); car.add(seatR); return car;
+        }
+        function createSupercar() {
+            const car = new THREE.Group(); const bM = new THREE.MeshStandardMaterial({ color: 0xffaa00, roughness: 0.1, metalness: 0.8 });
+            const base = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.5, 5.2), bM); base.position.y = 0.5; base.castShadow = true; car.add(base);
+            const roof = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.4, 2.0), new THREE.MeshStandardMaterial({ color: 0x050505 })); roof.position.set(0, 0.95, -0.4); car.add(roof);
+            const wing = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.1, 0.8), new THREE.MeshStandardMaterial({color:0x111})); wing.position.set(0, 0.8, -2.4); car.add(wing);
+            const w1 = createDetailedWheel(-1.35, 1.5), w2 = createDetailedWheel(1.35, 1.5), w3 = createDetailedWheel(-1.35, -1.5), w4 = createDetailedWheel(1.35, -1.5); car.add(w1, w2, w3, w4);
+            const tailLightMat = addStandardLights(car, 1.0, 2.6, -2.61, 0.6, 0.6);
+            car.userData = { frontWheels: [w1, w2], allWheels: [w1,w2,w3,w4], tailLightMat }; return car;
+        }
+        function createPickupTruck() {
+            const car = new THREE.Group(); const bM = new THREE.MeshStandardMaterial({ color: 0xbb2222, roughness: 0.5, metalness: 0.3 });
+            const cab = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.3, 2.5), bM); cab.position.set(0, 1.1, 1.3); cab.castShadow = true; car.add(cab);
+            const bedBase = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.4, 3.3), bM); bedBase.position.set(0, 0.65, -1.6); car.add(bedBase);
+            const bedSideL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 3.3), bM); bedSideL.position.set(-1.1, 1.15, -1.6); car.add(bedSideL);
+            const bedSideR = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 3.3), bM); bedSideR.position.set(1.1, 1.15, -1.6); car.add(bedSideR);
+            const bedBack = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.6, 0.2), bM); bedBack.position.set(0, 1.15, -3.15); car.add(bedBack);
+            const w1 = createDetailedWheel(-1.25, 2.0), w2 = createDetailedWheel(1.25, 2.0), w3 = createDetailedWheel(-1.25, -2.0), w4 = createDetailedWheel(1.25, -2.0);
+            w1.scale.set(1.2, 1.2, 1.2); w2.scale.set(1.2, 1.2, 1.2); w3.scale.set(1.2, 1.2, 1.2); w4.scale.set(1.2, 1.2, 1.2);
+            w1.position.y=0.55; w2.position.y=0.55; w3.position.y=0.55; w4.position.y=0.55; car.add(w1, w2, w3, w4);
+            const tailLightMat = addStandardLights(car, 0.9, 2.55, -3.26, 1.0, 1.2);
+            car.userData = { frontWheels: [w1, w2], allWheels: [w1,w2,w3,w4], tailLightMat }; return car;
+        }
+        function createBus() {
+            const car = new THREE.Group(); const bM = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3 });
+            const body = new THREE.Mesh(new THREE.BoxGeometry(2.8, 2.6, 11.0), bM); body.position.y = 1.6; body.castShadow = true; car.add(body);
+            const win = new THREE.Mesh(new THREE.BoxGeometry(2.85, 1.2, 9.5), new THREE.MeshStandardMaterial({ color: 0x111122, roughness: 0.1 })); win.position.set(0, 2.0, 0); car.add(win);
+            const line = new THREE.Mesh(new THREE.BoxGeometry(2.82, 0.3, 11.01), new THREE.MeshStandardMaterial({ color: 0x00ccff })); line.position.set(0, 1.0, 0); car.add(line);
+            const w1 = createDetailedWheel(-1.4, 4.0), w2 = createDetailedWheel(1.4, 4.0), w3 = createDetailedWheel(-1.4, -4.0), w4 = createDetailedWheel(1.4, -4.0);
+            w1.scale.set(1.3,1.3,1.3); w2.scale.set(1.3,1.3,1.3); w3.scale.set(1.3,1.3,1.3); w4.scale.set(1.3,1.3,1.3);
+            w1.position.y=0.6; w2.position.y=0.6; w3.position.y=0.6; w4.position.y=0.6; car.add(w1, w2, w3, w4);
+            const tailLightMat = addStandardLights(car, 1.0, 5.5, -5.51, 1.2, 1.2);
+            car.userData = { frontWheels: [w1, w2], allWheels: [w1,w2,w3,w4], tailLightMat }; return car;
+        }
+        function createTrailerTruck() {
+            const car = new THREE.Group(); 
+            const cab = new THREE.Mesh(new THREE.BoxGeometry(2.8, 2.5, 3.5), new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.4, metalness: 0.5 })); cab.position.set(0, 1.7, 4.25); cab.castShadow = true; car.add(cab);
+            const p1 = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 1.5), new THREE.MeshStandardMaterial({color:0xccc, metalness:0.9})); p1.position.set(-1.5, 3.0, 3.0); car.add(p1);
+            const p2 = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 1.5), new THREE.MeshStandardMaterial({color:0xccc, metalness:0.9})); p2.position.set(1.5, 3.0, 3.0); car.add(p2);
+            const trailer = new THREE.Mesh(new THREE.BoxGeometry(2.8, 3.2, 8.5), new THREE.MeshStandardMaterial({ color: 0xdddddd, roughness: 0.8 })); trailer.position.set(0, 2.0, -1.75); trailer.castShadow = true; car.add(trailer);
+            const w1 = createDetailedWheel(-1.4, 5.0), w2 = createDetailedWheel(1.4, 5.0), w3 = createDetailedWheel(-1.4, 3.0), w4 = createDetailedWheel(1.4, 3.0), w5 = createDetailedWheel(-1.4, -4.5), w6 = createDetailedWheel(1.4, -4.5);
+            const wheels = [w1,w2,w3,w4,w5,w6]; wheels.forEach(w => { w.scale.set(1.3,1.3,1.3); w.position.y=0.6; car.add(w); });
+            const tailLightMat = addStandardLights(car, 1.1, 6.0, -6.01, 1.0, 1.0);
+            car.userData = { frontWheels: [w1, w2], allWheels: wheels, tailLightMat }; return car;
+        }
+
+        // --- 애니메이션 루프 및 차량별 물리 엔진 적용 ---
+        function animate() {
+            requestAnimationFrame(animate);
+            let dt = clock.getDelta();
+            if (dt > 0.1) dt = 0.1;
+
+            if (car && !isCrashed && !isSuccess) {
+                updatePhysics(dt);
+                checkCollisions();
+                checkGoal();
+            }
+
+            if (car) {
+                const relativeCameraOffset = new THREE.Vector3(0, 7, -12);
+                const cameraOffset = relativeCameraOffset.applyMatrix4(car.matrixWorld);
+                camera.position.lerp(cameraOffset, 6 * dt);
+                camera.lookAt(car.position.x, car.position.y + 1.5, car.position.z);
+            }
+            renderer.render(scene, camera);
+        }
+
+        function updatePhysics(dt) {
+            const physics = CARS[selectedCarId].physics;
+            
+            // 1. 조향 (핸들링)
+            const steerSpeed = 2.8;
+            if (keys.ArrowLeft) steeringAngle += steerSpeed * dt;
+            else if (keys.ArrowRight) steeringAngle -= steerSpeed * dt;
+            else {
+                if (Math.abs(steeringAngle) > 0.05) steeringAngle -= Math.sign(steeringAngle) * steerSpeed * 1.5 * dt;
+                else steeringAngle = 0;
+            }
+            steeringAngle = Math.max(-physics.maxSteering, Math.min(physics.maxSteering, steeringAngle));
+            if (car.userData.frontWheels) car.userData.frontWheels.forEach(w => w.rotation.y = steeringAngle);
+            
+            // 2. 가속 및 감속 (차량별 스펙 반영)
+            let isAccelerating = false;
+            if (keys.ArrowUp) {
+                speed += physics.engineForce * dt; // 차량 고유 가속도
+                isAccelerating = true;
+            }
+            if (keys.ArrowDown) {
+                speed -= physics.brakingForce * dt; // 브레이크 힘
+                isAccelerating = true;
+                if (car.userData.tailLightMat) car.userData.tailLightMat.emissive.setHex(0xff0000);
+            } else {
+                if (car.userData.tailLightMat) car.userData.tailLightMat.emissive.setHex(0x330000);
+            }
+
+            // 마찰력 (엑셀을 안 밟을 때 자연 감속)
+            if (!isAccelerating) {
+                speed *= 0.95; 
+                if (Math.abs(speed) < 0.1) speed = 0;
+            }
+            
+            // 3. 최고속도 제한 (차량 고유 Max Speed)
+            if (speed > physics.maxSpeed) speed = physics.maxSpeed;
+            if (speed < -physics.maxSpeed * 0.5) speed = -physics.maxSpeed * 0.5; // 후진은 전진 최고속도의 절반
+            
+            // 위치 및 회전 연산
+            let angularVelocity = (speed / physics.wheelBase) * Math.tan(steeringAngle);
+            car.rotation.y += angularVelocity * dt;
+
+            car.position.x += Math.sin(car.rotation.y) * speed * dt;
+            car.position.z += Math.cos(car.rotation.y) * speed * dt;
+            
+            // 바퀴 회전
+            if(car.userData.allWheels) {
+                const wheelSpin = (speed * dt) / 0.35;
+                car.userData.allWheels.forEach(w => w.children.forEach(c => c.rotation.x += wheelSpin));
+            }
+
+            // 계기판 속도 업데이트 (실제 체감 속도 km/h 단위)
+            document.getElementById('speedText').innerText = Math.abs(Math.round(speed * 3.6));
+        }
+
+        function checkCollisions() {
+            const dims = CARS[selectedCarId].dimensions;
+            const hw = dims.w / 2; const hl = dims.l / 2;
+            const corners = [ new THREE.Vector3(hw, 0.5, hl), new THREE.Vector3(-hw, 0.5, hl), new THREE.Vector3(hw, 0.5, -hl), new THREE.Vector3(-hw, 0.5, -hl) ];
+            
+            for (let corner of corners) {
+                corner.applyEuler(car.rotation); corner.add(car.position);
+                for (let obs of obstacles) {
+                    const obsBox = new THREE.Box3().setFromObject(obs);
+                    if (obsBox.containsPoint(corner)) { gameOver(); return; }
+                }
+            }
+        }
+        
+        function checkGoal() {
+            const dist = car.position.distanceTo(goalMesh.position);
+            if (dist < 1.8 && Math.abs(speed) < 0.01) gameClear();
+        }
+
+        // --- 레벨 맵 구성 ---
+        function loadLevel(level) {
+            document.getElementById('levelText').innerText = "STAGE " + level;
+            if(car) scene.remove(car);
+            
+            obstacles.forEach(obs => scene.remove(obs));
+            parkingLines.forEach(line => scene.remove(line));
+            obstacles = []; parkingLines = [];
+
+            const carData = CARS[selectedCarId];
+            car = carData.createFunc();
+            car.position.set(0, 0, 0); car.rotation.set(0, 0, 0);
+            scene.add(car);
+            document.getElementById('carNameText').innerHTML = `현재 차량: <b>${carData.name}</b>`;
+
+            speed = 0; steeringAngle = 0; isCrashed = false; isSuccess = false;
+            document.querySelectorAll('.overlay').forEach(el => el.style.display = 'none');
+
+            switch(level) {
+                case 1: setGoal(0, 20, 0); break;
+                case 2: setGoal(0, 25, 0); addObstacle(-4.5, 25, 4, 8, 0x555555); addObstacle(4.5, 25, 4, 8, 0x555555); break;
+                case 3: setGoal(10, 20, -Math.PI / 4); addObstacle(4, 26, 4, 8, 0x334455); addObstacle(16, 14, 4, 8, 0x334455); break;
+                case 4: setGoal(12, 10, Math.PI / 2); addObstacle(12, 17, 4, 6); addObstacle(12, 3, 4, 6); addObstacle(16, 10, 2, 20); break;
+                case 5: setGoal(0, 45, 0); addObstacle(0, 10, 12, 2, 0xff0000); addObstacle(-6, 20, 12, 2, 0xff0000); addObstacle(6, 30, 12, 2, 0xff0000); break;
+                case 6: setGoal(-15, 20, Math.PI / 2); addObstacle(-10, 15, 2, 15); addObstacle(-15, 25, 10, 2); addObstacle(-20, 20, 2, 10); break;
+                case 7: setGoal(8, 12, Math.PI / 2); addObstacle(8, 18.5, 4.5, 6); addObstacle(8, 5.5, 4.5, 6); addObstacle(11.5, 12, 2, 20); addObstacle(-4, 12, 2, 25); break;
+                case 8: setGoal(-25, 30, 0); addObstacle(0, 15, 15, 2); addObstacle(-15, 10, 2, 15); addObstacle(-20, 22, 15, 2); addObstacle(-10, 28, 2, 12); addObstacle(-25, 38, 10, 2); addObstacle(-30, 30, 2, 16); addObstacle(-20, 32, 2, 12); break;
+            }
+        }
+
+        function updateCreditsUI() { document.getElementById('creditsAmount').innerText = totalCredits; }
+        function gameOver() { isCrashed = true; document.getElementById('gameOverOverlay').style.display = 'flex'; }
+        function gameClear() {
+            isSuccess = true;
+            const creditsEarned = 100 + currentLevel * 50; totalCredits += creditsEarned; updateCreditsUI();
+            document.getElementById('creditsEarned').innerText = `+ ${creditsEarned} 💰`;
+            const nextBtn = document.getElementById('nextStageBtn');
+            if (currentLevel >= maxLevel) {
+                document.getElementById('msgText').innerText = "🏆 모든 스테이지 클리어!"; nextBtn.innerText = "처음(STAGE 1)부터 다시하기";
+            } else {
+                document.getElementById('msgText').innerText = "🎉 완벽한 주차입니다!"; nextBtn.innerText = "다음 스테이지 바로가기";
+            }
+            document.getElementById('levelClearOverlay').style.display = 'flex';
+        }
+        function resetLevel() { loadLevel(currentLevel); }
+        function startNextLevel() { if (currentLevel >= maxLevel) currentLevel = 1; else currentLevel++; loadLevel(currentLevel); }
+
+        // --- 차고 UI (최고속도/가속력 표시) ---
+        function openGarage() { document.getElementById('levelClearOverlay').style.display = 'none'; document.getElementById('garageOverlay').style.display = 'flex'; renderGarage(); }
+        function renderGarage() {
+            const carList = document.getElementById('car-list'); carList.innerHTML = '';
+            document.getElementById('garage-credits').innerText = `보유 💰 ${totalCredits}`;
+
+            for (const id in CARS) {
+                const carData = CARS[id]; if (carData.price === 0 && id !== 'sedan') continue;
+                const card = document.createElement('div'); card.className = 'car-card';
+                if (id === selectedCarId) card.classList.add('selected');
+
+                let buttonsHTML = '';
+                if (ownedCars.has(id)) {
+                    if (id === selectedCarId) buttonsHTML = `<button disabled>현재 탑승 중</button>`;
+                    else buttonsHTML = `<button class="btn-primary" onclick="selectCar('${id}')">차량 선택하기</button>`;
+                } else {
+                    buttonsHTML = `<button class="buy-btn" onclick="buyCar('${id}')" ${totalCredits < carData.price ? 'disabled' : ''}>구매 💰 ${carData.price}</button>`;
+                }
+
+                // 차량 스펙 연산 (보기 편하게 포맷팅)
+                const difficulty = (id === 'bus' || id === 'truck') ? '<span style="color:#ff3366">어려움 (초대형)</span>' : (id === 'supercar' ? '<span style="color:#f0ad4e">보통 (제어어려움)</span>' : '<span style="color:#00ffcc">쉬움 (표준형)</span>');
+                const topSpeedKm = Math.round(carData.physics.maxSpeed * 3.6);
+                const accelDisplay = Math.round(carData.physics.engineForce * 10); // 마력(HP)처럼 보이게 연산
+
+                card.innerHTML = `
+                    <h3>${carData.name}</h3>
+                    <p style="text-align: left; margin-left: 10px;">
+                        🎯 난이도: ${difficulty}<br>
+                        🏎️ <b>최고속도: ${topSpeedKm} km/h</b><br>
+                        🚀 <b>가속력: ${accelDisplay} HP</b><br>
+                        📏 차체길이: ${carData.dimensions.l}m
+                    </p>
+                    <div class="btn-group">${buttonsHTML}</div>
+                `;
+                carList.appendChild(card);
+            }
+        }
+        function buyCar(id) { if (totalCredits >= CARS[id].price) { totalCredits -= CARS[id].price; ownedCars.add(id); updateCreditsUI(); renderGarage(); } }
+        function selectCar(id) { selectedCarId = id; renderGarage(); }
+
+        // --- 유틸 ---
+        function onWindowResize() { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); }
+        function addObstacle(x, z, w, d, color = 0xffa500) { const obs = new THREE.Mesh(new THREE.BoxGeometry(w, 3, d), new THREE.MeshStandardMaterial({ color: color, roughness: 0.5 })); obs.position.set(x, 1.5, z); obs.castShadow = true; scene.add(obs); obstacles.push(obs); }
+        function addParkingLines(x, z, rotation) { const group = new THREE.Group(); const lineMat = new THREE.MeshBasicMaterial({ color: 0xffffff }); const lineL = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 6.5), lineMat); lineL.position.set(-2.2, 0, 0); lineL.rotation.x = -Math.PI / 2; const lineR = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 6.5), lineMat); lineR.position.set(2.2, 0, 0); lineR.rotation.x = -Math.PI / 2; const lineB = new THREE.Mesh(new THREE.PlaneGeometry(4.6, 0.2), lineMat); lineB.position.set(0, 0, -3.15); lineB.rotation.x = -Math.PI / 2; group.add(lineL, lineR, lineB); group.position.set(x, 0.02, z); group.rotation.y = rotation; scene.add(group); parkingLines.push(group); }
+        function setGoal(x, z, rot) { goalMesh.position.set(x, 0.1, z); goalMesh.rotation.y = rot; addParkingLines(x, z, rot); }
+    </script>
+</body>
+</html>
